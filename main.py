@@ -1,6 +1,7 @@
 import tkinter as tk
 import docx2pdf
 import os
+import re
 import glob
 import shutil
 import win32com.client
@@ -10,12 +11,13 @@ from openpyxl import load_workbook
 from docxtpl import DocxTemplate
 from pathlib import Path
 from tkcalendar import Calendar, DateEntry
-from PyPDF2 import PdfMerger
+from PyPDF2 import PdfMerger, PdfReader
 
 global data_name
 global ent_list
 global soum_list
 global adj_list
+
 to_list = []
 from_list = []
 
@@ -50,7 +52,18 @@ def select_data_file():
         if cell.value != 'None':
             list_gestionnaires.append(cell.value)
         cmb_nom_gestionnaire['values'] = list_gestionnaires
+        cmb_nom_gestionnaire.current(0)
         cmb_nom_gestionnaire.configure(state='readonly')
+
+    # liste secrétaires
+    list_secret = []
+    for cell in ws_gest['E'][1:]:
+        if cell.value != 'None':
+            list_secret.append(cell.value)
+        cmb_secretaire['values'] = list_secret
+        cmb_secretaire.current(0)
+        cmb_secretaire.configure(state='readonly')
+
     lbl_message.configure(
         text='Base de données chargée avec succès...', width=50, relief='groove', fg='lime')
 
@@ -248,22 +261,39 @@ def select_pv_ca_file():
         return doc_pv_ca_name
 
 
+def select_redac():
+    global nom_redac
+    if var_redac.get() == 0:
+        cmb_secretaire.configure(state='readonly')
+        nom_redac = cmb_secretaire.get()
+
+    if var_redac.get() == 1:
+        cmb_secretaire.configure(state='disabled')
+        nom_redac = cmb_nom_charg_projet.get()
+    return nom_redac
+
+
+def get_secret_name(e):
+    nom_redac = cmb_secretaire.get()
+    return nom_redac
+
+
 def initiales_gest(nom):
-	cap = nom.split(' ')
-	init = cap[0][0] + cap[1][0]
-	return init
+    cap = nom.split(' ')
+    init = cap[0][0] + cap[1][0]
+    return init
 
 
 def initiales_redac(nom):
-	cap = nom.split(' ')
-	init = cap[0][0] + cap[1][0]
-	return init.lower()
+    cap = nom.split(' ')
+    init = cap[0][0] + cap[1][0]
+    return init.lower()
 
 
 def gener_remerc():
     path = f'./gabarits/{doc_remerc_name}'
     doc = DocxTemplate(path)
-    companies = {}
+    compagnies = {}
     ws = wb[discipline]
     for row in ws.iter_rows(min_row=2, values_only=True):
         company_name = row[0]
@@ -277,7 +307,7 @@ def gener_remerc():
             "civilite": row[6],
             "fonction": row[7]
         }
-        companies[company_name] = company_data
+        compagnies[company_name] = company_data
 
     ws_gestionnaires = wb['Gestionnaires']
     date = entry_cal.get()
@@ -285,6 +315,13 @@ def gener_remerc():
     num_projet = entry_num_projet.get()
     nom_gest = cmb_nom_gestionnaire.get()
     init_gest = initiales_gest(nom_gest)
+    
+    if var_redac.get() == 0:
+        nom_redac = cmb_secretaire.get()
+    if var_redac.get() == 1:
+        nom_redac = cmb_nom_charg_projet.get()
+    
+    init_redac = initiales_redac(nom_redac)
 
     for row in ws_gestionnaires.iter_rows(min_row=2, min_col=1, max_col=1):
         for cell in row:
@@ -293,7 +330,7 @@ def gener_remerc():
                     row=cell.row, column=2).value
                 fonction_gest = ws_gestionnaires.cell(
                     row=cell.row, column=3).value
-    
+
     pathDOC = './output/remerciement/DOC'
 
     isExist = os.path.exists(pathDOC)
@@ -310,15 +347,15 @@ def gener_remerc():
             "fonction_gest": fonction_gest,
             "init_gest": init_gest,
             "init_redac": init_redac,
-            "civilite": companies[ent]['civilite'],
-            "representant": companies[ent]['representant'],
-            "nom_de_compagnie": companies[ent]['nom_de_compagnie'],
-            "adresse": companies[ent]['adresse'],
-            "ville": companies[ent]['ville'],
-            "code_postal": companies[ent]['code_postal'],
-            "courriel": companies[ent]['courriel']
+            "civilite": compagnies[ent]['civilite'],
+            "representant": compagnies[ent]['representant'],
+            "nom_de_compagnie": compagnies[ent]['nom_de_compagnie'],
+            "adresse": compagnies[ent]['adresse'],
+            "ville": compagnies[ent]['ville'],
+            "code_postal": compagnies[ent]['code_postal'],
+            "courriel": compagnies[ent]['courriel']
         })
-        nom_comp = f'{companies[ent]["nom_de_compagnie"]}'
+        nom_comp = f'{compagnies[ent]["nom_de_compagnie"]}'
         nom_fichier = f"Lettre de remerciement - {nom_comp}.docx"
 
         doc.save(f'{pathDOC}/{nom_fichier}')
@@ -354,9 +391,9 @@ def gener_remerc():
 
 
 def gener_octroi():
-    path = f'./gabarits/{doc_octroi_name}'
-    doc = DocxTemplate(path)
-    companies = {}
+    path_gabarit = f'./gabarits/{doc_octroi_name}'
+    doc = DocxTemplate(path_gabarit)
+    compagnies = {}
     ws = wb[discipline]
     for row in ws.iter_rows(min_row=2, values_only=True):
         company_name = row[0]
@@ -370,14 +407,45 @@ def gener_octroi():
             "civilite": row[6],
             "fonction": row[7]
         }
-        companies[company_name] = company_data
+        compagnies[company_name] = company_data
 
         ws_gestionnaires = wb['Gestionnaires']
+
+    pv_ca = f"./pv/{doc_pv_ca_name}"
+    shutil.move(pv_ca, './')
+    
+    filename = doc_pv_ca_name
+    filenamePDF = filename.split('.')[0]
+    path = os.getcwd()
+    in_file = f"{path}\{filename}"
+    out_file = f"{path}\{filenamePDF}"
+    
+    wdFormatPDF = 17
+    word = win32com.client.Dispatch('Word.Application')
+    doc_doc = word.Documents.Open(in_file)
+    doc_doc.SaveAs(out_file, FileFormat=wdFormatPDF)
+    doc_doc.Close()
+    word.Quit()
+    shutil.move(in_file, './pv')
+    
+    reader = PdfReader(f"{out_file}.pdf")
+    texte =reader.pages[0].extract_text()
+    resolution = re.search(r"CA[\d]{2}\s[\d]{2}\s[\d]{2,4}", texte).group()
+    date_resolution = re.search(r"[\d]{1,2}\s(?:janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s[\d]{4}", texte).group()
+    
     date = entry_cal.get()
     titre_projet = entry_titre_projet.get()
     num_projet = entry_num_projet.get()
     nom_gest = cmb_nom_gestionnaire.get()
     charg_projet = cmb_nom_charg_projet.get()
+    init_gest = initiales_gest(nom_gest)
+    
+    if var_redac.get() == 0:
+        nom_redac = cmb_secretaire.get()
+    if var_redac.get() == 1:
+        nom_redac = cmb_nom_charg_projet.get()
+        
+    init_redac = initiales_redac(nom_redac)
 
     ws_charg_proj = wb['Chargés de projet']
     for row in ws_charg_proj.iter_rows(min_row=2, min_col=2, max_col=2):
@@ -404,7 +472,6 @@ def gener_octroi():
     isExist = os.path.exists(pathDOC)
     if not isExist:
         os.makedirs(pathDOC)
-
     for ent in list(adj_list.get(0, tk.END)):
         doc.render({
             "date": date,
@@ -413,55 +480,42 @@ def gener_octroi():
             "nom_gestionnaire": nom_gest,
             "titre_gest": titre_gest,
             "fonction_gest": fonction_gest,
+            "init_gest": init_gest,
+            "init_redac": init_redac,
+            "resolution": resolution,
+            "date_resolution": date_resolution,
             "civ_charge_projet": civ_charge_proj,
             "nom_charge_projet": nom_charge_projet,
             "tel_charge_projet": tel_charge_projet,
-            "civilite": companies[ent]['civilite'],
-            "representant": companies[ent]['representant'],
-            "nom_de_compagnie": companies[ent]['nom_de_compagnie'],
-            "adresse": companies[ent]['adresse'],
-            "ville": companies[ent]['ville'],
-            "code_postal": companies[ent]['code_postal'],
-            "courriel": companies[ent]['courriel']
+            "civilite": compagnies[ent]['civilite'],
+            "representant": compagnies[ent]['representant'],
+            "nom_de_compagnie": compagnies[ent]['nom_de_compagnie'],
+            "adresse": compagnies[ent]['adresse'],
+            "ville": compagnies[ent]['ville'],
+            "code_postal": compagnies[ent]['code_postal'],
+            "courriel": compagnies[ent]['courriel']
         })
         global nom_comp_adj
-        nom_comp_adj = f'{companies[ent]["nom_de_compagnie"]}'
+        nom_comp_adj = f'{compagnies[ent]["nom_de_compagnie"]}'
         nom_fichier_doc = f"Lettre d'adjudication_{nom_comp_adj}.docx"
-
         doc.save(f'{pathDOC}/{nom_fichier_doc}')
 
-    pv_ca = f"./pv/{doc_pv_ca_name}"
-    shutil.move(pv_ca, './')
-
     docx2pdf.convert(pathDOC, '.')
-    
-    wdFormatPDF = 17
-    filename = doc_pv_ca_name
-    filenamePDF = filename.split('.')[0]
-    path = os.getcwd()
-    in_file = f"{path}\{filename}"
-    out_file = f"{path}\{filenamePDF}"
-
-    word = win32com.client.Dispatch('Word.Application')
-    doc = word.Documents.Open(in_file)
-    doc.SaveAs(out_file, FileFormat=wdFormatPDF)
-    doc.Close()
-    word.Quit()
 
     pdfs = glob.glob('*.pdf')
 
     pdfs = [f for f in os.listdir() if f.endswith(".pdf")]
-    
+
     merger = PdfMerger()
-    
+
     for pdf in pdfs:
         merger.append(open(pdf, 'rb'))
-    
+
     pathPDF = './output/octroi/PDF'
     isExist = os.path.exists(pathPDF)
     if not isExist:
         os.makedirs(pathPDF)
-    
+
     nom_fichier_pdf = f"{pathPDF}/Lettre d'adjudication_{num_projet}.pdf"
     with open(nom_fichier_pdf, 'wb') as fout:
         merger.write(fout)
@@ -470,8 +524,6 @@ def gener_octroi():
     for f in os.listdir('./'):
         if f.endswith('.pdf'):
             os.remove(f)
-        
-    shutil.move(in_file, './pv')
 
     mb.showinfo(title='Confirmation',
                 message="Publipostage de la lettre d'octroi réalisé avec succès.")
@@ -560,16 +612,18 @@ entry_cal.grid(row=1, column=2, sticky='n')
 
 # rédacteur
 frm_redacteur = tk.LabelFrame(frame_info_charg_proj_sign_date)
-frm_redacteur.grid(row=0, column=3, rowspan=2, padx=10, pady=10 )
+frm_redacteur.grid(row=0, column=3, rowspan=2, padx=10, pady=10)
 lbl_redacteur = tk.Label(frm_redacteur, text='Rédacteur')
 lbl_redacteur.grid(row=0, column=0, rowspan=2)
 
-var_redac = IntVar(None, 1) 
-rbtn_red = tk.Radiobutton(frm_redacteur, text='Secrétaire', variable=var_redac, value=1)
-rbtn_red.grid(row=0, column=1, sticky='w',padx=10, pady=5)
+var_redac = IntVar(None, 0)
+rbtn_red = tk.Radiobutton(frm_redacteur, text='Secrétaire',
+                          variable=var_redac, value=0, command=select_redac)
+rbtn_red.grid(row=0, column=1, sticky='w', padx=10, pady=5)
 
-rbtn_red =tk.Radiobutton(frm_redacteur, text='Chargé(e) de projet', variable=var_redac, value=2)
-rbtn_red.grid(row=1,column=1, sticky='w',padx=10, pady=5)
+rbtn_red = tk.Radiobutton(frm_redacteur, text='Chargé(e) de projet',
+                          variable=var_redac, value=1, command=select_redac)
+rbtn_red.grid(row=1, column=1, sticky='w', padx=10, pady=5)
 
 cmb_secretaire = ttk.Combobox(frm_redacteur, width=25)
 cmb_secretaire.grid(row=0, column=2, sticky='w', padx=10)
@@ -697,5 +751,6 @@ ent_list.bind('<Double-Button>', dbl_moveTo)
 soum_list.bind('<Double-Button>', dbl_moveBack)
 soum_list.bind('<<ListboxSelect>>', soum_to_adj)
 adj_list.bind('<<ListboxSelect>>', adj_to_soum)
+cmb_secretaire.bind('<<ComboboxSelected>>', get_secret_name)
 
 root.mainloop()
