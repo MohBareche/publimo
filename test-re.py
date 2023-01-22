@@ -7,7 +7,7 @@ import PyPDF2
 
 wdFormatPDF = 17
 
-filename = 'Resolution1229516003_1104.doc'
+filename = 'Resolution1229516004_1108.doc'
 filenamePDF = filename.split('.')[0]
 path = os.getcwd()
 in_file = f"{path}\{filename}"
@@ -18,6 +18,9 @@ doc = word.Documents.Open(in_file)
 doc.SaveAs(out_file, FileFormat=wdFormatPDF)
 doc.Close()
 word.Quit()
+
+
+
 
 reader = PyPDF2.PdfReader(f"{out_file}.pdf")
 

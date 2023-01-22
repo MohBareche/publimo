@@ -3,6 +3,8 @@ import docx2pdf
 import os
 import glob
 import shutil
+import win32com.client
+
 from tkinter import ttk, messagebox as mb, filedialog as fd, IntVar
 from openpyxl import load_workbook
 from docxtpl import DocxTemplate
@@ -246,7 +248,19 @@ def select_pv_ca_file():
         return doc_pv_ca_name
 
 
-def gen_remerc():
+def initiales_gest(nom):
+	cap = nom.split(' ')
+	init = cap[0][0] + cap[1][0]
+	return init
+
+
+def initiales_redac(nom):
+	cap = nom.split(' ')
+	init = cap[0][0] + cap[1][0]
+	return init.lower()
+
+
+def gener_remerc():
     path = f'./gabarits/{doc_remerc_name}'
     doc = DocxTemplate(path)
     companies = {}
@@ -270,6 +284,7 @@ def gen_remerc():
     titre_projet = entry_titre_projet.get()
     num_projet = entry_num_projet.get()
     nom_gest = cmb_nom_gestionnaire.get()
+    init_gest = initiales_gest(nom_gest)
 
     for row in ws_gestionnaires.iter_rows(min_row=2, min_col=1, max_col=1):
         for cell in row:
@@ -278,7 +293,7 @@ def gen_remerc():
                     row=cell.row, column=2).value
                 fonction_gest = ws_gestionnaires.cell(
                     row=cell.row, column=3).value
-
+    
     pathDOC = './output/remerciement/DOC'
 
     isExist = os.path.exists(pathDOC)
@@ -293,6 +308,8 @@ def gen_remerc():
             "nom_gestionnaire": nom_gest,
             "titre_gest": titre_gest,
             "fonction_gest": fonction_gest,
+            "init_gest": init_gest,
+            "init_redac": init_redac,
             "civilite": companies[ent]['civilite'],
             "representant": companies[ent]['representant'],
             "nom_de_compagnie": companies[ent]['nom_de_compagnie'],
@@ -336,7 +353,7 @@ def gen_remerc():
                 message='Publipostage des lettres de remerciement réalisé avec succès.')
 
 
-def gen_octroi():
+def gener_octroi():
     path = f'./gabarits/{doc_octroi_name}'
     doc = DocxTemplate(path)
     companies = {}
@@ -414,13 +431,24 @@ def gen_octroi():
         doc.save(f'{pathDOC}/{nom_fichier_doc}')
 
     pv_ca = f"./pv/{doc_pv_ca_name}"
-
-    shutil.move(pv_ca, pathDOC)
+    shutil.move(pv_ca, './')
 
     docx2pdf.convert(pathDOC, '.')
+    
+    wdFormatPDF = 17
+    filename = doc_pv_ca_name
+    filenamePDF = filename.split('.')[0]
+    path = os.getcwd()
+    in_file = f"{path}\{filename}"
+    out_file = f"{path}\{filenamePDF}"
+
+    word = win32com.client.Dispatch('Word.Application')
+    doc = word.Documents.Open(in_file)
+    doc.SaveAs(out_file, FileFormat=wdFormatPDF)
+    doc.Close()
+    word.Quit()
 
     pdfs = glob.glob('*.pdf')
-
 
     pdfs = [f for f in os.listdir() if f.endswith(".pdf")]
     
@@ -442,6 +470,8 @@ def gen_octroi():
     for f in os.listdir('./'):
         if f.endswith('.pdf'):
             os.remove(f)
+        
+    shutil.move(in_file, './pv')
 
     mb.showinfo(title='Confirmation',
                 message="Publipostage de la lettre d'octroi réalisé avec succès.")
@@ -629,7 +659,7 @@ btn_pv_ouvert = tk.Button(
 btn_pv_ouvert.grid(row=0, column=3)
 
 btn_gen_remerc = tk.Button(
-    frame_remerc, text='Générer les lettres de remerciement', bg='#123456', fg='white', width=45, command=gen_remerc)
+    frame_remerc, text='Générer les lettres de remerciement', bg='#123456', fg='white', width=45, command=gener_remerc)
 btn_gen_remerc.grid(row=0, column=4, sticky='w', padx=15)
 
 for widget in frame_remerc.winfo_children():
@@ -654,7 +684,7 @@ btn_pv_ca = tk.Button(
 btn_pv_ca.grid(row=0, column=3)
 
 btn_gen_octroi = tk.Button(
-    frame_octroi, text="Générer la lettre d'octroi", bg='#123456', fg='white', width=45, command=gen_octroi)
+    frame_octroi, text="Générer la lettre d'octroi", bg='#123456', fg='white', width=45, command=gener_octroi)
 btn_gen_octroi.grid(row=0, column=4, sticky="w", padx=15)
 
 for widget in frame_octroi.winfo_children():
