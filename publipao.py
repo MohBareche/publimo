@@ -1,16 +1,21 @@
 import tkinter as tk
+from tkinter import *
+from tkinter import font, messagebox as mb, filedialog as fd, IntVar
+from threading import Thread
+import ttkbootstrap as ttk
+from ttkbootstrap import Style
+
 import docx2pdf
 import os
+import sys
 import re
 import glob
 import shutil
 import win32com.client
 
-from tkinter import ttk, messagebox as mb, filedialog as fd, IntVar
 from openpyxl import load_workbook
 from docxtpl import DocxTemplate
 from pathlib import Path
-from tkcalendar import Calendar, DateEntry
 from PyPDF2 import PdfMerger, PdfReader
 
 global data_name
@@ -20,6 +25,18 @@ global adj_list
 
 to_list = []
 from_list = []
+
+
+def confirm_quitter():
+    answer = mb.askyesno(title='Confirmation',
+                         message='Êtes-vous sûr de vouloir quitter?')
+    if answer:
+        window.destroy()
+
+
+def confirm_pub_tout():
+    mb.showinfo(title='Confirmation',
+                message="Publipostage réalisé avec succès.")
 
 
 def select_data_file():
@@ -64,8 +81,11 @@ def select_data_file():
         cmb_secretaire.current(0)
         cmb_secretaire.configure(state='readonly')
 
+    select_remerc_file()
+    select_octroi_file()
+
     lbl_message.configure(
-        text='Base de données chargée avec succès...', width=50, relief='groove', fg='lime')
+        text='Base de données chargée avec succès...', width=50, relief='groove', bootstyle='inverse-success')
 
 
 def load_data():
@@ -79,7 +99,7 @@ def load_data():
     list_values = list(sheet.values)
     cols = list_values[0]
 
-    tree = ttk.Treeview(root, columns=cols, show='headings')
+    tree = ttk.Treeview(window, columns=cols, show='headings')
     tree.pack(expand=True, fill='y')
 
     for col_name in cols:
@@ -198,34 +218,14 @@ def show_list_ent(e):
 
 def select_remerc_file():
     global doc_remerc_name
-    filetypes = (
-        ('Fichier Word', '*.docx'), ("All files", "*.*")
-    )
-    filename = fd.askopenfilename(
-        title='Choisir un gabarit',
-        initialdir='./gabarits',
-        filetypes=filetypes
-    )
-    doc_remerc_name = Path(filename).name
-    if doc_remerc_name:
-        lbl_remerc.configure(fg='green', text='Gabarit remerciement (OK)')
-        return doc_remerc_name
+    doc_remerc_name = 'Lettre_remerciement.docx'
+    return doc_remerc_name
 
 
 def select_octroi_file():
     global doc_octroi_name
-    filetypes = (
-        ('Fichier Word', '*.docx'), ("All files", "*.*")
-    )
-    filename = fd.askopenfilename(
-        title='Choisir un gabarit',
-        initialdir='./gabarits',
-        filetypes=filetypes
-    )
-    doc_octroi_name = Path(filename).name
-    if doc_octroi_name:
-        lbl_octroi.configure(fg='green', text="Gabarit d'octroi (OK)")
-        return doc_octroi_name
+    doc_octroi_name = 'Lettre_octroi.docx'
+    return doc_octroi_name
 
 
 def select_pv_ouverture_file():
@@ -241,7 +241,7 @@ def select_pv_ouverture_file():
     doc_pv_ouvert_name = Path(filename).name
     if doc_pv_ouvert_name:
         lbl_pv_ouvert.configure(
-            fg='green', text="Procès verbal d'ouverture (OK)")
+            text="Procès verbal d'ouverture (OK)", bootstyle='SUCCESS')
         return doc_pv_ouvert_name
 
 
@@ -257,7 +257,7 @@ def select_pv_ca_file():
     )
     doc_pv_ca_name = Path(filename).name
     if doc_pv_ca_name:
-        lbl_pv_ca.configure(fg='green', text="Procès verbal CA (OK)")
+        lbl_pv_ca.configure(text="Procès verbal CA (OK)", bootstyle='SUCCESS')
         return doc_pv_ca_name
 
 
@@ -269,6 +269,7 @@ def select_redac():
 
     if var_redac.get() == 1:
         cmb_secretaire.configure(state='disabled')
+        cmb_secretaire.config(foreground='silver')
         nom_redac = cmb_nom_charg_projet.get()
     return nom_redac
 
@@ -288,6 +289,11 @@ def initiales_redac(nom):
     cap = nom.split(' ')
     init = cap[0][0] + cap[1][0]
     return init.lower()
+
+
+def erreur_msg():
+    mb.showerror(title='Erreur',
+                 message="Veuillez entrer les données manquantes.")
 
 
 def gener_remerc():
@@ -310,17 +316,17 @@ def gener_remerc():
         compagnies[company_name] = company_data
 
     ws_gestionnaires = wb['Gestionnaires']
-    date = entry_cal.get()
+    date = entry_cal.entry.get()
     titre_projet = entry_titre_projet.get()
-    num_projet = entry_num_projet.get()
+    num_contrat = entry_num_contrat.get()
     nom_gest = cmb_nom_gestionnaire.get()
     init_gest = initiales_gest(nom_gest)
-    
+
     if var_redac.get() == 0:
         nom_redac = cmb_secretaire.get()
     if var_redac.get() == 1:
         nom_redac = cmb_nom_charg_projet.get()
-    
+
     init_redac = initiales_redac(nom_redac)
 
     for row in ws_gestionnaires.iter_rows(min_row=2, min_col=1, max_col=1):
@@ -331,17 +337,19 @@ def gener_remerc():
                 fonction_gest = ws_gestionnaires.cell(
                     row=cell.row, column=3).value
 
+    path_folder = './output/remerciement'
+    isExist = os.path.exists(path_folder)
+    if isExist:
+        remerc_folder = shutil.rmtree('./output/remerciement')
     pathDOC = './output/remerciement/DOC'
 
-    isExist = os.path.exists(pathDOC)
-    if not isExist:
-        os.makedirs(pathDOC)
+    os.makedirs(pathDOC)
 
     for ent in list(soum_list.get(0, tk.END)):
         doc.render({
             "date": date,
             "titre": titre_projet,
-            "num_contrat": num_projet,
+            "num_contrat": num_contrat,
             "nom_gestionnaire": nom_gest,
             "titre_gest": titre_gest,
             "fonction_gest": fonction_gest,
@@ -356,7 +364,7 @@ def gener_remerc():
             "courriel": compagnies[ent]['courriel']
         })
         nom_comp = f'{compagnies[ent]["nom_de_compagnie"]}'
-        nom_fichier = f"Lettre de remerciement - {nom_comp}.docx"
+        nom_fichier = f"{num_contrat}_Lettre de remerciement - {nom_comp}.docx"
 
         doc.save(f'{pathDOC}/{nom_fichier}')
 
@@ -375,19 +383,17 @@ def gener_remerc():
         merger.write(f"{name}_fin.pdf")
         merger.close()
 
+    pdf_folder = 'PDF'
+    remerc_folder = './output/remerciement'
+    pathPDF = os.path.join(remerc_folder, pdf_folder)
+    os.makedirs(pathPDF)
+
     for f in glob.glob('./*_fin.pdf'):
-        pathPDF = './output/remerciement/PDF'
-        isExist = os.path.exists(pathPDF)
-        if not isExist:
-            os.makedirs(pathPDF)
         shutil.move(f, pathPDF)
 
     for f in os.listdir('./'):
         if f.endswith('.pdf'):
             os.remove(f)
-
-    mb.showinfo(title='Confirmation',
-                message='Publipostage des lettres de remerciement réalisé avec succès.')
 
 
 def gener_octroi():
@@ -413,13 +419,13 @@ def gener_octroi():
 
     pv_ca = f"./pv/{doc_pv_ca_name}"
     shutil.move(pv_ca, './')
-    
+
     filename = doc_pv_ca_name
     filenamePDF = filename.split('.')[0]
     path = os.getcwd()
     in_file = f"{path}\{filename}"
     out_file = f"{path}\{filenamePDF}"
-    
+
     wdFormatPDF = 17
     word = win32com.client.Dispatch('Word.Application')
     doc_doc = word.Documents.Open(in_file)
@@ -427,24 +433,26 @@ def gener_octroi():
     doc_doc.Close()
     word.Quit()
     shutil.move(in_file, './pv')
-    
+
     reader = PdfReader(f"{out_file}.pdf")
-    texte =reader.pages[0].extract_text()
+    texte = reader.pages[0].extract_text()
     resolution = re.search(r"CA[\d]{2}\s[\d]{2}\s[\d]{2,4}", texte).group()
-    date_resolution = re.search(r"[\d]{1,2}\s(?:janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s[\d]{4}", texte).group()
-    
-    date = entry_cal.get()
+    date_resolution = re.search(
+        r"[\d]{1,2}\s(?:janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s[\d]{4}", texte).group()
+
+    date = entry_cal.entry.get()
     titre_projet = entry_titre_projet.get()
-    num_projet = entry_num_projet.get()
+    num_contrat = entry_num_contrat.get()
+    num_ao = entry_num_ao.get()
     nom_gest = cmb_nom_gestionnaire.get()
     charg_projet = cmb_nom_charg_projet.get()
     init_gest = initiales_gest(nom_gest)
-    
+
     if var_redac.get() == 0:
         nom_redac = cmb_secretaire.get()
     if var_redac.get() == 1:
         nom_redac = cmb_nom_charg_projet.get()
-        
+
     init_redac = initiales_redac(nom_redac)
 
     ws_charg_proj = wb['Chargés de projet']
@@ -467,16 +475,19 @@ def gener_octroi():
                 fonction_gest = ws_gestionnaires.cell(
                     row=cell.row, column=3).value
 
+    path_folder = './output/octroi'
+    isExist = os.path.exists(path_folder)
+    if isExist:
+        octroi_folder = shutil.rmtree('./output/octroi')
     pathDOC = './output/octroi/DOC'
+    os.makedirs(pathDOC)
 
-    isExist = os.path.exists(pathDOC)
-    if not isExist:
-        os.makedirs(pathDOC)
     for ent in list(adj_list.get(0, tk.END)):
         doc.render({
             "date": date,
             "titre": titre_projet,
-            "num_contrat": num_projet,
+            "num_contrat": num_contrat,
+            "num_ao": num_ao,
             "nom_gestionnaire": nom_gest,
             "titre_gest": titre_gest,
             "fonction_gest": fonction_gest,
@@ -497,7 +508,7 @@ def gener_octroi():
         })
         global nom_comp_adj
         nom_comp_adj = f'{compagnies[ent]["nom_de_compagnie"]}'
-        nom_fichier_doc = f"Lettre d'adjudication_{nom_comp_adj}.docx"
+        nom_fichier_doc = f"{num_contrat}_Lettre d'adjudication - {nom_comp_adj}.docx"
         doc.save(f'{pathDOC}/{nom_fichier_doc}')
 
     docx2pdf.convert(pathDOC, '.')
@@ -511,12 +522,12 @@ def gener_octroi():
     for pdf in pdfs:
         merger.append(open(pdf, 'rb'))
 
-    pathPDF = './output/octroi/PDF'
-    isExist = os.path.exists(pathPDF)
-    if not isExist:
-        os.makedirs(pathPDF)
+    pdf_folder = 'PDF'
+    octroi_folder = './output/octroi'
+    pathPDF = os.path.join(octroi_folder, pdf_folder)
+    os.makedirs(pathPDF)
 
-    nom_fichier_pdf = f"{pathPDF}/Lettre d'adjudication_{num_projet}.pdf"
+    nom_fichier_pdf = f"{pathPDF}/{num_contrat}_Lettre d'adjudication - {nom_comp_adj}.pdf"
     with open(nom_fichier_pdf, 'wb') as fout:
         merger.write(fout)
         merger.close()
@@ -525,232 +536,333 @@ def gener_octroi():
         if f.endswith('.pdf'):
             os.remove(f)
 
-    mb.showinfo(title='Confirmation',
-                message="Publipostage de la lettre d'octroi réalisé avec succès.")
+
+def gener_tout():
+    gener_remerc()
+    gener_octroi()
 
 
-root = tk.Tk()
-style = ttk.Style()
-style.theme_use('clam')
-style.configure('Treeview.Heading', background='green2', font=('Bold'))
-#  center window in screen
-root_width = 1100
-root_height = 650
-screen_with = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-pos_x = int((screen_with - root_width) // 2)
-pos_y = int((screen_height - root_height) // 2)
+def enable_btn_folder():
+    btn_open_folder.configure(state='normal')
 
-#  differents config window app
-root.title("Publipostage lettres de remerciement et lettre d'octroi")
-root.geometry(f"{root_width}x{root_height}+{pos_x}+{pos_y}")
-root.resizable(0, 0)
 
-# chargement des données
-frame_data = tk.LabelFrame(
-    root, text='Choix de la base de données', fg='blue')
-frame_data.grid(row=0, column=0, sticky='ew', padx=20, pady=5)
+def update_theme(e):
+    window.style.theme_use(nom_theme.get())
 
-lbl_load_data = tk.Label(frame_data, text='Choisir un fichier')
+
+def open_folder():
+    path = './output'
+    os.system(f'start {os.path.realpath(path)}')
+
+
+def show_and_run(func):
+    func()
+
+
+def run_function(func, btn):
+    progressbar = ttk.Progressbar(frame_progress, orient='horizontal',
+                                  mode='indeterminate', length=200, bootstyle="info-striped")
+    progressbar.grid(row=0, column=0, padx=10, pady=10)
+    progressbar.start(interval=10)
+    frame_progress.configure(text='Veuillez patienter . . .')
+    show_and_run(func)
+    enable_btn_folder()
+    progressbar.destroy()
+    frame_progress.configure(text='Statut')
+    confirm_pub_tout()
+
+
+def generer(func, btn):
+    global titre_projet
+    global num_contrat
+    global num_ao
+    
+    titre_projet = entry_titre_projet.get()
+    num_contrat = entry_num_contrat.get()
+    num_ao = entry_num_ao.get()
+    nom_charg_proj = cmb_nom_charg_projet.get()
+    
+    if (titre_projet and num_contrat and num_ao and nom_charg_proj):
+        Thread(target=run_function, args=(func, btn)).start()
+    else:
+        erreur_msg()
+
+
+def restart_program():
+    python = sys.executable
+    os.execl(python, python, * sys.argv)
+
+
+def reinit():
+    pass
+
+
+window = ttk.Window(themename='darkly')
+window_width = 1275
+window_height = 725
+
+screen_with = window.winfo_screenwidth()
+screen_height = window.winfo_screenheight()
+pos_x = (screen_with - window_width) // 2
+pos_y = (screen_height - window_height) // 2
+window.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
+window.title("Publipostage - Lettres de remerciement et lettre d'octroi")
+window.resizable(0, 0)
+
+# default font
+window.defaultFont = font.nametofont("TkDefaultFont")
+window.defaultFont.configure(family="Arial", size=11)
+
+themes = window.style.theme_names()
+nom_theme = ttk.StringVar(value=window.style.theme_use())
+
+# ********************************************************************************************************************
+
+frame_first = ttk.Frame(window)
+frame_first.grid(row=0, column=0, columnspan=2, sticky='NEWS', padx=20, pady=7)
+
+frame_data = ttk.LabelFrame(
+    frame_first, text='Choix de la base de données', width=500, height=100)
+frame_data.grid(row=0, column=0, sticky='W', padx=20, pady=7)
+
+lbl_load_data = ttk.Label(frame_data, text='Choisir un fichier')
 lbl_load_data.grid(row=0, column=0)
-btn_load_data = tk.Button(
-    frame_data, text='Sélectionner...', command=select_data_file)
+btn_load_data = ttk.Button(
+    frame_data, text='Sélectionner...', command=select_data_file, bootstyle='PRIMARY, OUTLINE')
 btn_load_data.grid(row=0, column=1)
 
-lbl_message = tk.Label(frame_data, fg='yellow', bg='black',
-                       text="Choisir d'abord la base de données pour commencer.", width=50, relief='groove',)
+lbl_message = ttk.Label(frame_data,
+                        text="Choisir d'abord la base de données pour commencer.", width=50, relief='groove', bootstyle="inverse-danger")
 lbl_message.grid(row=0, column=2)
 
+# *************************************************************************************************
+frame_progress = ttk.LabelFrame(frame_first, width=200, text='Statut')
+frame_progress.grid(row=0, column=1, sticky='NEWS', padx=20, pady=7)
+
+# *************************************************************************************************
+frame_theme = ttk.LabelFrame(
+    frame_first, text='Sélectionner un thème', width=300, height=100)
+frame_theme.grid(row=0, column=2,  sticky='E', padx=20, pady=7)
+
+for theme in themes:
+    cmb_theme = ttk.Combobox(
+        frame_theme, state='readonly', textvariable=nom_theme, values=themes)
+    cmb_theme.current(11)
+    cmb_theme.grid(row=0, column=0, padx=5, pady=10)
+
 for widget in frame_data.winfo_children():
-    widget.grid_configure(padx=10, pady=10)
+    widget.grid_configure(padx=10, pady=7)
 
+for widget in frame_progress.winfo_children():
+    widget.grid_configure(padx=10, pady=7)
 
-# informations sur le projet
-frame_info_projet = tk.LabelFrame(
-    root, text='Informations sur le projet', fg='blue')
-frame_info_projet.grid(row=1, column=0, sticky='ew', padx=20, pady=5)
+for widget in frame_theme.winfo_children():
+    widget.grid_configure(padx=10, pady=7)
 
-lbl_titre_projet = tk.Label(frame_info_projet, text='Titre du projet')
+# ********************************************************************************************************************
+
+frame_info_projet = ttk.LabelFrame(
+    window,  text='Informations sur le projet', width=700, height=100)
+frame_info_projet.grid(row=1, column=0, columnspan=2,
+                       sticky='NEWS', padx=20, pady=7)
+
+lbl_titre_projet = ttk.Label(frame_info_projet, text='Titre du projet')
 lbl_titre_projet.grid(row=0, column=0)
-entry_titre_projet = tk.Entry(frame_info_projet, width=100)
+entry_titre_projet = ttk.Entry(frame_info_projet, width=70)
 entry_titre_projet.grid(row=0, column=1)
 
-lbl_num_projet = tk.Label(frame_info_projet, text='Numéro de projet')
-lbl_num_projet.grid(row=0, column=2)
-entry_num_projet = tk.Entry(frame_info_projet)
-entry_num_projet.grid(row=0, column=3)
+lbl_num_contrat = ttk.Label(frame_info_projet, text='Numéro de contrat')
+lbl_num_contrat.grid(row=0, column=2)
+entry_num_contrat = ttk.Entry(frame_info_projet)
+entry_num_contrat.grid(row=0, column=3)
+
+lbl_num_ao = ttk.Label(frame_info_projet, text="Numéro d'appel d'offres")
+lbl_num_ao.grid(row=0, column=4)
+entry_num_ao = ttk.Entry(frame_info_projet)
+entry_num_ao.grid(row=0, column=5)
 
 for widget in frame_info_projet.winfo_children():
     widget.grid_configure(padx=10, pady=10)
-
-frame_info_charg_proj_sign_date = tk.LabelFrame(
-    root, text='Informations diverses [ Chargé de projet, signataire, rédacteur et date de rédaction ]', fg='blue')
+# ********************************************************************************************************************
+frame_info_charg_proj_sign_date = ttk.LabelFrame(
+    window, text='Informations diverses [ Chargé de projet, signataire, rédacteur et date de rédaction ]', width=700, height=100)
 frame_info_charg_proj_sign_date.grid(
-    row=2, column=0, sticky='ew', padx=20, pady=5)
+    row=2, column=0, columnspan=2, sticky='NEWS', padx=20, pady=7)
 
-# informations sur le chargé de projet
-lbl_nom_charg_projet = tk.Label(
+lbl_nom_charg_projet = ttk.Label(
     frame_info_charg_proj_sign_date, text='Chargé(e) de projet')
 lbl_nom_charg_projet.grid(row=0, column=0, sticky='s')
-cmb_nom_charg_projet = ttk.Combobox(frame_info_charg_proj_sign_date, width=25)
+cmb_nom_charg_projet = ttk.Combobox(
+    frame_info_charg_proj_sign_date, width=25, bootstyle='PRIMARY')
 cmb_nom_charg_projet.grid(row=1, column=0, sticky='n')
 cmb_nom_charg_projet.bind("<<ComboboxSelected>>", show_list_ent)
 
 # informations sur le signataire (gestionnaire)
-lbl_nom_gestionnaire = tk.Label(
+lbl_nom_gestionnaire = ttk.Label(
     frame_info_charg_proj_sign_date, text='Signataire (Gestionnaire)')
 lbl_nom_gestionnaire.grid(row=0, column=1, sticky='s')
 cmb_nom_gestionnaire = ttk.Combobox(frame_info_charg_proj_sign_date, width=25)
 cmb_nom_gestionnaire.grid(row=1, column=1, sticky='n')
 
 # date de rédaction
-lbl_date = tk.Label(frame_info_charg_proj_sign_date, text="Date de rédaction")
+lbl_date = ttk.Label(frame_info_charg_proj_sign_date,
+                     text="Date de rédaction")
 lbl_date.grid(row=0, column=2, sticky='s')
-entry_cal = DateEntry(frame_info_charg_proj_sign_date,
-                      width=16, background="magenta3", foreground="white", bd=2)
+
+entry_cal = ttk.DateEntry(frame_info_charg_proj_sign_date)
 entry_cal.grid(row=1, column=2, sticky='n')
 
 # rédacteur
-frm_redacteur = tk.LabelFrame(frame_info_charg_proj_sign_date)
-frm_redacteur.grid(row=0, column=3, rowspan=2, padx=10, pady=10)
-lbl_redacteur = tk.Label(frm_redacteur, text='Rédacteur')
-lbl_redacteur.grid(row=0, column=0, rowspan=2)
+frm_redacteur = ttk.LabelFrame(
+    frame_info_charg_proj_sign_date, text='Rédacteur')
+frm_redacteur.grid(row=0, column=3, rowspan=2, padx=10, pady=10, sticky='e')
 
 var_redac = IntVar(None, 0)
-rbtn_red = tk.Radiobutton(frm_redacteur, text='Secrétaire',
-                          variable=var_redac, value=0, command=select_redac)
-rbtn_red.grid(row=0, column=1, sticky='w', padx=10, pady=5)
+rbtn_red = ttk.Radiobutton(frm_redacteur, text='Secrétaire', bootstyle="INFO",
+                           variable=var_redac, value=0, command=select_redac)
+rbtn_red.grid(row=0, column=1, sticky='w', padx=10, pady=10)
 
-rbtn_red = tk.Radiobutton(frm_redacteur, text='Chargé(e) de projet',
-                          variable=var_redac, value=1, command=select_redac)
-rbtn_red.grid(row=1, column=1, sticky='w', padx=10, pady=5)
+rbtn_red = ttk.Radiobutton(frm_redacteur, text='Chargé(e) de projet', bootstyle="INFO",
+                           variable=var_redac, value=1, command=select_redac)
+rbtn_red.grid(row=1, column=1, sticky='w', padx=10, pady=10)
 
-cmb_secretaire = ttk.Combobox(frm_redacteur, width=25)
-cmb_secretaire.grid(row=0, column=2, sticky='w', padx=10)
+cmb_secretaire = ttk.Combobox(frm_redacteur, width=25, bootstyle='DARK')
+cmb_secretaire.grid(row=0, column=2, sticky='e', padx=10)
 
 for widget in frame_info_charg_proj_sign_date.winfo_children():
-    widget.grid_configure(padx=15, pady=5)
+    widget.grid_configure(padx=15, pady=10)
 
+# ********************************************************************************************************************
+frame_soumission = ttk.LabelFrame(
+    window, text='Informations sur les soumissionnaires', width=700, height=200)
+frame_soumission.grid(row=3, column=0, columnspan=2,
+                      sticky='NEWS', padx=20, pady=7)
 
-# ************************************************************************************************
-# Frame information soumissionnaires
-frame_soumission = tk.LabelFrame(
-    root, text='Informations sur les soumissionnaires', fg='blue')
-frame_soumission.grid(row=3, column=0, sticky='ew', padx=20, pady=5)
-
-lbl_list_ent = tk.Label(frame_soumission, text='Liste des entrepreneurs')
+lbl_list_ent = ttk.Label(frame_soumission, text='Liste des entrepreneurs')
 lbl_list_ent.grid(row=0, column=0)
 ent_list = tk.Listbox(frame_soumission,
-                      width=40, bg='#FEF9E7', font=('Arial', 10))
+                      width=40, font=('Arial', 10))
 ent_list.grid(row=1, column=0)
 
-frame_group_btn1 = tk.Frame(frame_soumission)
+frame_group_btn1 = ttk.Frame(frame_soumission)
 frame_group_btn1.grid(row=1, column=1, rowspan=4)
 
-btn_1 = tk.Button(frame_group_btn1, text='>', font=('Arial', 11, 'bold'),
-                  width=3, command=lambda: moveTo(ent_list, soum_list))
+btn_1 = ttk.Button(frame_group_btn1, text='>', bootstyle='DANGER, OUTLINE',
+                   width=3, command=lambda: moveTo(ent_list, soum_list))
 btn_1.grid(row=0, column=0, pady=5)
 
-btn_2 = tk.Button(frame_group_btn1, text='>>', font=('Arial', 11, 'bold'),
-                  width=3, command=lambda: move_all(ent_list, soum_list))
+btn_2 = ttk.Button(frame_group_btn1, text='>>', bootstyle='DANGER, OUTLINE',
+                   width=3, command=lambda: move_all(ent_list, soum_list))
 btn_2.grid(row=1, column=0, pady=5)
 
-btn_3 = tk.Button(frame_group_btn1, text='<', font=('Arial', 11, 'bold'),
-                  width=3, command=lambda: moveTo(soum_list, ent_list))
+btn_3 = ttk.Button(frame_group_btn1, text='<', bootstyle='DANGER, OUTLINE',
+                   width=3, command=lambda: moveTo(soum_list, ent_list))
 btn_3.grid(row=2, column=0, pady=5)
 
-btn_4 = tk.Button(frame_group_btn1, text='<<', font=('Arial', 11, 'bold'),
-                  width=3, command=lambda: move_all(soum_list, ent_list))
+btn_4 = ttk.Button(frame_group_btn1, text='<<', bootstyle='DANGER, OUTLINE',
+                   width=3, command=lambda: move_all(soum_list, ent_list))
 btn_4.grid(row=3, column=0, pady=5)
 
-
-lbl_list_soum = tk.Label(frame_soumission, text='Liste des soumissionnaires')
+lbl_list_soum = ttk.Label(frame_soumission, text='Liste des soumissionnaires')
 lbl_list_soum.grid(row=0, column=2)
-soum_list = tk.Listbox(frame_soumission, width=40,
-                       bg='#FEF9E7', fg='#00F', font=('Arial', 10))
+soum_list = tk.Listbox(frame_soumission, width=40, font=('Arial', 10))
 soum_list.grid(row=1, column=2)
 
-frame_group_btn2 = tk.Frame(frame_soumission)
+frame_group_btn2 = ttk.Frame(frame_soumission)
 frame_group_btn2.grid(row=1, column=3)
 
-btn_adj_1 = tk.Button(frame_group_btn2, text='>', state='disabled', font=('Arial', 11, 'bold'),
-                      width=3, command=lambda: [move_adj(soum_list, adj_list), soum_to_adj])
+btn_adj_1 = ttk.Button(frame_group_btn2, text='Octroyer>', state='disabled', bootstyle='SUCCESS, OUTLINE',
+                       width=10, command=lambda: [move_adj(soum_list, adj_list), soum_to_adj])
 btn_adj_1.grid(row=0, column=0, pady=5)
 
-btn_adj_2 = tk.Button(frame_group_btn2, text='<', state='disabled', font=('Arial', 11, 'bold'),
-                      width=3, command=lambda: [back_adj(adj_list, soum_list), adj_to_soum])
+btn_adj_2 = ttk.Button(frame_group_btn2, text='<Retirer', state='disabled', bootstyle='SUCCESS, OUTLINE',
+                       width=10, command=lambda: [back_adj(adj_list, soum_list), adj_to_soum])
 btn_adj_2.grid(row=1, column=0, pady=5)
 
-lbl_adj = tk.Label(frame_soumission, text='Entreprise adjugée')
+lbl_adj = ttk.Label(frame_soumission, text='Entreprise adjugée')
 lbl_adj.grid(row=0, column=4)
-adj_list = tk.Listbox(frame_soumission, width=40, bg='#FEF9E7',
-                      fg='#1d5720', font=('Arial', 10))
+adj_list = tk.Listbox(frame_soumission, width=40, font=('Arial', 10))
 
 for widget in frame_soumission.winfo_children():
     widget.grid_configure(padx=10, pady=0)
 
-adj_list.grid(row=1, column=4, pady=5)
+adj_list.grid(row=1, column=4, pady=10)
+# ********************************************************************************************************************
+frame_remerc_octroi = ttk.LabelFrame(
+    window, text='Lettres de remerciement et octroi', width=300, height=200)
+frame_remerc_octroi.grid(row=4, column=0, sticky='NEWS', padx=20, pady=7)
 
-# ************************************************************************************************
-# Remerciements
-frame_remerc = tk.LabelFrame(root, text='Lettres de remerciement', fg='blue')
-frame_remerc.grid(row=4, column=0, sticky='ew', padx=20, pady=5)
-
-# Gabarit Remerciements
-lbl_remerc = tk.Label(
-    frame_remerc, text='Gabarit remerciement (.doc)', width=25)
-lbl_remerc.grid(row=0, column=0)
-btn_remerc = tk.Button(
-    frame_remerc, text='Sélectionner...', command=select_remerc_file, width=15)
-btn_remerc.grid(row=0, column=1)
+frame_remerc = ttk.Frame(
+    frame_remerc_octroi)
+frame_remerc.grid(row=0, column=0, sticky='N', padx=20, pady=5)
 
 # PV Ouverture Remerciements
-lbl_pv_ouvert = tk.Label(
-    frame_remerc, text="Procès verbal d'ouverture (.pdf)", width=25)
-lbl_pv_ouvert.grid(row=0, column=2)
-btn_pv_ouvert = tk.Button(
-    frame_remerc, text='Sélectionner...', command=select_pv_ouverture_file, width=15)
-btn_pv_ouvert.grid(row=0, column=3)
+lbl_pv_ouvert = ttk.Label(
+    frame_remerc, text="Procès verbal d'ouverture (.pdf)", width=30)
+lbl_pv_ouvert.grid(row=0, column=0, stick='W')
 
-btn_gen_remerc = tk.Button(
-    frame_remerc, text='Générer les lettres de remerciement', bg='#123456', fg='white', width=45, command=gener_remerc)
-btn_gen_remerc.grid(row=0, column=4, sticky='w', padx=15)
+btn_pv_ouvert = ttk.Button(
+    frame_remerc, text='Sélectionner...', bootstyle='INFO, OUTLINE', command=select_pv_ouverture_file, width=15)
+btn_pv_ouvert.grid(row=0, column=1, sticky='W')
+
+btn_gen_remerc = ttk.Button(
+    frame_remerc, text='Générer les lettres de remerciement', bootstyle='SUCCESS', width=35,
+    command=lambda: generer(gener_remerc, btn_gen_remerc))
+btn_gen_remerc.grid(row=0, column=2, sticky='E')
 
 for widget in frame_remerc.winfo_children():
-    widget.grid_configure(padx=15, pady=10)
+    widget.grid_configure(padx=10, pady=10)
 
-# Octroi
-frame_octroi = tk.LabelFrame(root, text="Lettre d'octroi", fg='blue')
-frame_octroi.grid(row=5, column=0, sticky='ew', padx=20, pady=5)
-
-# Gabarit Octroi
-lbl_octroi = tk.Label(frame_octroi, text="Gabarit d'octroi (.doc)", width=25)
-lbl_octroi.grid(row=0, column=0)
-btn_octroi = tk.Button(
-    frame_octroi, text='Sélectionner...', command=select_octroi_file, width=15)
-btn_octroi.grid(row=0, column=1)
-
+frame_octroi = ttk.Frame(
+    frame_remerc_octroi)
+frame_octroi.grid(row=1, column=0, sticky='S', padx=20, pady=5)
 # PV CA Octroi
-lbl_pv_ca = tk.Label(frame_octroi, text='Procès verbal CA (.doc)', width=25)
-lbl_pv_ca.grid(row=0, column=2)
-btn_pv_ca = tk.Button(
-    frame_octroi, text='Sélectionner...', command=select_pv_ca_file, width=15)
-btn_pv_ca.grid(row=0, column=3)
+lbl_pv_ca = ttk.Label(frame_octroi, text='Procès verbal CA (.doc)', width=30)
+lbl_pv_ca.grid(row=0, column=0, sticky='W')
+btn_pv_ca = ttk.Button(
+    frame_octroi, text='Sélectionner...', bootstyle='INFO, OUTLINE', command=select_pv_ca_file, width=15)
+btn_pv_ca.grid(row=0, column=1, sticky='W')
 
-btn_gen_octroi = tk.Button(
-    frame_octroi, text="Générer la lettre d'octroi", bg='#123456', fg='white', width=45, command=gener_octroi)
-btn_gen_octroi.grid(row=0, column=4, sticky="w", padx=15)
+btn_gen_octroi = ttk.Button(
+    frame_octroi, text="Générer la lettre d'octroi", bootstyle='SUCCESS', width=35,
+    command=lambda: generer(gener_octroi, btn_gen_octroi))
+btn_gen_octroi.grid(row=0, column=2, sticky="E")
 
 for widget in frame_octroi.winfo_children():
-    widget.grid_configure(padx=15, pady=10)
+    widget.grid_configure(padx=10, pady=10)
+# ********************************************************************************************************************
+frame_btns = ttk.Frame(window, width=600, height=100)
+frame_btns.grid(row=4, column=1, padx=20, pady=7, sticky='E')
+
+btn_generer_tout = ttk.Button(
+    frame_btns, text='Générer tout (remerciement et octroi)', width=45, bootstyle='PRIMARY',
+    command=lambda: generer(gener_tout, btn_generer_tout))
+btn_generer_tout.grid(row=0, column=0, columnspan=2)
+
+frm_btns = ttk.Frame(frame_btns, width=600)
+frm_btns.grid(row=1, column=0, padx=10, pady=5, sticky='NEWS')
+
+btn_reinit = ttk.Button(frm_btns, text='Réinitialiser',
+                        bootstyle='WARNING', width=25, command=reinit)
+btn_reinit.grid(row=1, column=0, padx=5, sticky='W')
+
+btn_open_folder = ttk.Button(frm_btns, text='Explorer', state='disabled',
+                             bootstyle='INFO', width=15, command=open_folder)
+btn_open_folder.grid(row=1, column=1, sticky='E')
+
+btn_quitter = ttk.Button(frame_btns, text='Quitter',
+                         width=45, bootstyle='DANGER', command=confirm_quitter)
+btn_quitter.grid(row=2, column=0, columnspan=2)
+
+for widget in frame_btns.winfo_children():
+    widget.grid_configure(padx=10, pady=7)
 
 
-# load_data()
-# generate_publipostage()
 ent_list.bind('<Double-Button>', dbl_moveTo)
 soum_list.bind('<Double-Button>', dbl_moveBack)
 soum_list.bind('<<ListboxSelect>>', soum_to_adj)
 adj_list.bind('<<ListboxSelect>>', adj_to_soum)
 cmb_secretaire.bind('<<ComboboxSelected>>', get_secret_name)
+cmb_theme.bind('<<ComboboxSelected>>', update_theme)
 
-root.mainloop()
+window.mainloop()
